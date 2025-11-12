@@ -388,8 +388,6 @@ o.lte = function(a: number)
 	end
 end
 
--- Requires Typecasting
-
 o.curry = function<A>(func: (any) -> A, n: number?)
 	local arity = n ~= nil and n or debug.info(func, "a")
 	if arity <= 1 then
