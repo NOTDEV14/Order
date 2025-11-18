@@ -244,8 +244,8 @@ o.outerProduct = function<A, B, C>(operation: (A) -> (B) -> C)
 	end
 end
 
-o.chunksOf = function<A>(chunkSize: number)
-	return function(array: { A }): { { A } }
+o.chunksOf = function(chunkSize: number)
+	return function<A>(array: { A }): { { A } }
 		local result = {}
 
 		local remainder = (#array % chunkSize)
