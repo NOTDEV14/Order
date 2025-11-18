@@ -67,21 +67,57 @@ o.p = function<A, B, C>(func: (A) -> (B) -> C)
 	end
 end
 
-o.append = function <A> (a: {A})
-	return function (b: {A}): {A}
+o.append = function<A>(a: { A })
+	return function(b: { A }): { A }
 		local result = table.create(#a + #b)
-		table.move(a, 1, #a, 1, result) 
-		table.move(b, 1, #b, #result + 1, result) 
+		table.move(a, 1, #a, 1, result)
+		table.move(b, 1, #b, #result + 1, result)
 		return result
 	end
 end
 
-o.compose2 = function <A, B> (f: (A) -> B)
-	return function <C> (g: (B) -> C)
+o.compose2 = function<A, B>(f: (A) -> B)
+	return function<C>(g: (B) -> C)
 		return function(value: A): C
 			return g(f(value))
 		end
 	end
+end
+
+o.curry = function<A>(func: (any) -> A, n: number?)
+	local arity = n ~= nil and n or debug.info(func, "a")
+	if arity <= 1 then
+		return func
+	end
+	local function _curry<B...>(...: B...)
+		local applied = { ... }
+		if arity == #applied then
+			return func(unpack(applied))
+		else
+			return function<T>(arg: T)
+				return _curry(unpack(o.append(applied)({ arg })))
+			end
+		end
+	end
+	return _curry
+end
+
+o.partial = function<A>(func: (any) -> A, n: number?)
+	local arity = n ~= nil and n or debug.info(func, "a")
+	if arity <= 1 then
+		return func
+	end
+	local function _partial(...)
+		local applied = { ... }
+		if arity == #applied then
+			return func(unpack(applied))
+		else
+			return function<T...>(...: T...)
+				return _partial(unpack(o.append(applied)({ ... })))
+			end
+		end
+	end
+	return _partial
 end
 
 o.foldl = function<A, B>(operator: (B) -> (A) -> B)
@@ -94,7 +130,7 @@ o.foldl = function<A, B>(operator: (B) -> (A) -> B)
 			return accum
 		end
 	end
-end :: <A, B>(operator: (B) -> (A) -> B) -> (identity: B) -> (array: { A }) -> B
+end
 
 o.foldr = function<A, B, C>(operator: (A) -> (B) -> B)
 	return function(identity: B)
@@ -208,14 +244,40 @@ o.outerProduct = function<A, B, C>(operation: (A) -> (B) -> C)
 	end
 end
 
-o.addIndex = function<A, B, C>(operator: ((A) -> B) -> ({ A }) -> { C })
-	return function(idxOp: (number) -> (A) -> B)
-		return function(tbl: { A }): { C }
+o.chunksOf = function<A>(chunkSize: number)
+	return function(array: { A }): { { A } }
+		local result = {}
+
+		local remainder = (#array % chunkSize)
+
+		local iterations = (#array // chunkSize) + o.safeDiv(remainder)(remainder)
+
+		for i = 1, iterations do
+			local startIndex = (i * chunkSize) - (chunkSize - 1)
+			local endIndex = i * chunkSize
+
+			result[i] = table.move(array, startIndex, endIndex, 1, {})
+		end
+
+		return result
+	end
+end
+
+o.addIndex = function<A, B>(operator: ((A) -> B) -> ({ A }) -> { B })
+	return function<K>(idxOp: (K) -> (A) -> B)
+		return function(tbl: { [K]: A }): { [K]: B }
 			local result = {}
 			for i, _ in tbl do
 				local appliedIndex = idxOp(i)
 				local c = o.compose2(operator(appliedIndex))(o.head)
-				result[#result + 1] = c({ tbl[i] })
+
+				local opResult = c({ tbl[i] })
+
+				if typeof(i) == "number" then
+					result[#result + 1] = opResult
+				else
+					result[i] = opResult
+				end
 			end
 			return result
 		end
@@ -246,10 +308,8 @@ end
 
 -- Function Composition
 
-o.buildComp = o.compose2(o.foldl)(o.flip) 
-
-o.composeArray = o.buildComp(o.applyTo)
-o.compose = o.tupleToArray(o.composeArray) 
+o.buildComp = o.compose2(o.foldl)(o.flip) :: <A, B>(operator: (B) -> (A) -> B) -> (array: { A }) -> (identity: B) -> B
+o.compose = o.buildComp(o.applyTo) :: (array: { (any) -> any }) -> (identity: any) -> any
 
 -- Dictionary
 
@@ -326,6 +386,12 @@ o.floorDiv = function<A>(a: number)
 	end
 end
 
+o.safeDiv = function<A>(a: number)
+	return function(b: number): number
+		return a / (b + 0 ^ b)
+	end
+end
+
 o.exp = function<A>(a: number)
 	return function(b: number): number
 		return a ^ b
@@ -353,13 +419,13 @@ end
 -- Relational
 
 o.eq = function<A>(a: A)
-	return function(b: A): eq<A, A>
+	return function(b: A): boolean
 		return a == b
 	end
 end
 
 o.notEq = function<A>(a: A)
-	return function(b: A): eq<A, A>
+	return function(b: A): boolean
 		return not (a == b)
 	end
 end
@@ -386,42 +452,6 @@ o.lte = function(a: number)
 	return function(b: number): boolean
 		return a <= b
 	end
-end
-
-o.curry = function<A>(func: (any) -> A, n: number?)
-	local arity = n ~= nil and n or debug.info(func, "a")
-	if arity <= 1 then
-		return func
-	end
-	local function _curry <B...> (...: B...)
-		local applied = { ... }
-		if arity == #applied then
-			return func(unpack(applied))
-		else
-			return function<T>(arg: T)
-				return _curry(unpack(o.append(applied)({ arg })))
-			end
-		end
-	end
-	return _curry
-end
-
-o.partial = function<A>(func: (any) -> A, n: number?)
-	local arity = n ~= nil and n or debug.info(func, "a")
-	if arity <= 1 then
-		return func
-	end
-	local function _partial(...)
-		local applied = { ... }
-		if arity == #applied then
-			return func(unpack(applied))
-		else
-			return function<T...>(...: T...)
-				return _partial(unpack(o.append(applied)({ ... })))
-			end
-		end
-	end
-	return _partial
 end
 
 return o
