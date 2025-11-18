@@ -89,35 +89,17 @@ o.curry = function<A>(func: (any) -> A, n: number?)
 	if arity <= 1 then
 		return func
 	end
-	local function _curry<B...>(...: B...)
-		local applied = { ... }
-		if arity == #applied then
-			return func(unpack(applied))
-		else
-			return function<T>(arg: T)
-				return _curry(unpack(o.append(applied)({ arg })))
-			end
-		end
-	end
-	return _curry
-end
-
-o.partial = function<A>(func: (any) -> A, n: number?)
-	local arity = n ~= nil and n or debug.info(func, "a")
-	if arity <= 1 then
-		return func
-	end
-	local function _partial(...)
+	local function _curry(...)
 		local applied = { ... }
 		if arity == #applied then
 			return func(unpack(applied))
 		else
 			return function<T...>(...: T...)
-				return _partial(unpack(o.append(applied)({ ... })))
+				return _curry(unpack(o.append(applied)({ ... })))
 			end
 		end
 	end
-	return _partial
+	return _curry
 end
 
 o.foldl = function<A, B>(operator: (B) -> (A) -> B)
