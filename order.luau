@@ -84,7 +84,7 @@ o.compose2 = function<A, B>(f: (A) -> B)
 	end
 end
 
-o.curry = function<A>(func: (any) -> A, n: number?)
+o.curry = function<A>(func: (...any) -> A, n: number?): any
 	local arity = n ~= nil and n or debug.info(func, "a")
 	if arity <= 1 then
 		return func
