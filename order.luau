@@ -347,7 +347,7 @@ o.prop = function <A> (property: A)
 	end
 end
 
-local snd = o.prop(2)
+o.snd = o.prop(2)
 
 o.cut = function(pattern: string)
 	return function(str: string): string
