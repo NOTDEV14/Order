@@ -14,8 +14,18 @@ o.tail = function<A>(tbl: { A }): A
 	return tbl[#tbl]
 end
 
-o.array = function<A>(...: { A })
+o.len = function<A>(tbl: { A }): number
+	return #tbl
+end
+
+o.array = function<A>(...: A)
 	return { ... }
+end
+
+o.arrayTo = function<A>(constructor: (...any) -> A)
+	return function(array: { any })
+		return constructor(unpack(array))
+	end
 end
 
 o.rep = function(count: number)
@@ -57,30 +67,21 @@ o.notEmpty = function<A, B>(tbl: { [A]: B }): boolean
 	return not o.empty(tbl)
 end
 
-o.p = function<A, B, C>(func: (A) -> (B) -> C)
-	return function(g: (C) -> A)
-		return function(a: A)
-			return function(b: B): C
-				return func(g(a))(g(b))
-			end
-		end
+o.append = function<A>(a: { A })
+	return function(b: A): { A }
+		local result = table.create(#a + 1)
+		table.move(a, 1, #a, 1, result)
+		result[#result + 1] = b
+		return result
 	end
 end
 
-o.append = function<A>(a: { A })
+o.concat = function<A>(a: { A })
 	return function(b: { A }): { A }
 		local result = table.create(#a + #b)
 		table.move(a, 1, #a, 1, result)
 		table.move(b, 1, #b, #result + 1, result)
 		return result
-	end
-end
-
-o.compose2 = function<A, B>(f: (A) -> B)
-	return function<C>(g: (B) -> C)
-		return function(value: A): C
-			return g(f(value))
-		end
 	end
 end
 
@@ -95,7 +96,7 @@ o.curry = function<A>(func: (...any) -> A, n: number?): any
 			return func(unpack(applied))
 		else
 			return function<T...>(...: T...)
-				return _curry(unpack(o.append(applied)({ ... })))
+				return _curry(unpack(o.concat(applied)({ ... })))
 			end
 		end
 	end
@@ -127,7 +128,7 @@ o.foldr = function<A, B, C>(operator: (A) -> (B) -> B)
 end
 
 o.reduce = function<A, B>(operator: (A) -> (B) -> B)
-	return function(array: { A }): { B }
+	return function(array: { A }): B
 		local accum = array[1]
 		for i = 2, #array do
 			accum = operator(accum)(array[i])
@@ -137,7 +138,7 @@ o.reduce = function<A, B>(operator: (A) -> (B) -> B)
 end
 
 o.reduceR = function<A, B>(operator: (A) -> (B) -> B)
-	return function(array: { A }): { B }
+	return function(array: { A }): B
 		local accum = array[#array]
 		for i = #array - 1, 1, -1 do
 			accum = operator(accum)(array[i])
@@ -146,7 +147,31 @@ o.reduceR = function<A, B>(operator: (A) -> (B) -> B)
 	end
 end
 
-o.merge = o.reduce(o.append) :: <A>({ { A } }) -> { A }
+o.scanl = function<A, B>(operator: (B) -> (A) -> B)
+	return function(identity: B)
+		return function(array: { A }): { B }
+			local result = { identity }
+			for i, _ in array do
+				result[#result + 1] = operator(result[#result])(array[i])
+			end
+			return result
+		end
+	end
+end
+
+o.scanr = function<A, B>(operator: (B) -> (A) -> B)
+	return function(identity: B)
+		return function(array: { A }): { B }
+			local result = { identity }
+			for i = #array, 1, -1 do
+				result[#result + 1] = operator(result[#result])(array[i])
+			end
+			return result
+		end
+	end
+end
+
+o.merge = o.reduce(o.concat) :: <A>({ { A } }) -> { A }
 
 o.zip = function<A, B>(a: { A })
 	return function(b: { B }): { { A & B } }
@@ -180,7 +205,7 @@ o.unzip = function<A, B, C>(array: { { A & B } }): { { A } & { B } }
 end
 
 o.map = function<A, B>(mapper: (A) -> B)
-	return function(array: { A }): { B }
+	return function<I>(array: { [I]: A }): { [I]: B }
 		local result = table.create(#array)
 		for _, value in array do
 			result[#result + 1] = mapper(value)
@@ -190,14 +215,14 @@ o.map = function<A, B>(mapper: (A) -> B)
 end
 
 o.flatMap = function<A, B>(mapper: (A) -> B)
-	return function(array: { { A } }): { B }
+	return function<I>(array: { { [I]: A } }): { [I]: B }
 		local result = o.map(mapper)(array)
 		return o.merge(result)
 	end
 end
 
 o.filter = function<A>(predicate: (A) -> boolean)
-	return function(array: { A }): { A }
+	return function<I>(array: { [I]: A }): { [I]: A }
 		local result = {}
 		for _, v in array do
 			if predicate(v) then
@@ -217,8 +242,8 @@ o.reverse = function<A>(array: { A }): { A }
 end
 
 o.outerProduct = function<A, B, C>(operation: (A) -> (B) -> C)
-	return function(a: { A })
-		return function(b: { B }): { C }
+	return function<I>(a: { [I]: A })
+		return function(b: { [I]: B }): { [I]: C }
 			local mapper = o.apply(o.flip(o.map)(b))
 			local array = o.map(operation)(a)
 			return o.map(mapper)(array)
@@ -245,9 +270,9 @@ o.chunksOf = function(chunkSize: number)
 	end
 end
 
-o.addIndex = function<A, B>(operator: ((A) -> B) -> ({ A }) -> { B })
+o.addIndex = function<A, B, C>(operator: ((A) -> B) -> ({ A }) -> { C })
 	return function<K>(idxOp: (K) -> (A) -> B)
-		return function(tbl: { [K]: A }): { [K]: B }
+		return function(tbl: { [K]: A }): { [K]: C }
 			local result = {}
 			for i, _ in tbl do
 				local appliedIndex = idxOp(i)
@@ -274,8 +299,6 @@ function o.indexes<A, B>(tbl: { [A]: B }): { A }
 	return result
 end
 
--- Debug
-
 function o.trace<A>(value: A): A
 	warn(value)
 	return value
@@ -288,20 +311,43 @@ o.traceMsg = function(message: string)
 	end
 end
 
--- Function Composition
+o.compose2 = function<A, B>(f: (A) -> B)
+	return function<C>(g: (B) -> C)
+		return function(value: A): C
+			return g(f(value))
+		end
+	end
+end
+
+o.on = function<B, C>(f: (B) -> (B) -> C)
+	return function<A>(g: (A) -> B)
+		return function(a: A)
+			return function(b: A): C
+				return f(g(a))(g(b))
+			end
+		end
+	end
+end
 
 o.buildComp = o.compose2(o.foldl)(o.flip) :: <A, B>(operator: (B) -> (A) -> B) -> (array: { A }) -> (identity: B) -> B
 o.compose = o.buildComp(o.applyTo) :: (array: { (any) -> any }) -> (identity: any) -> any
 
--- Dictionary
+o.uncurry = o.compose {o.foldl(o.apply), o.tupleToArray}
+o.flatten = o.flatMap(o.id)
 
-o.prop = function(property: string)
-	return function<A, B>(object: { [A]: B }): B
+local sort = o.curry(function(comp, toSort)
+	local result = table.clone(toSort)
+	table.sort(result, o.uncurry(comp))
+	return result
+end) :: <A> ((A) -> (A) -> boolean) -> ({A}) -> {A}
+
+o.prop = function <A> (property: A)
+	return function<B, C>(object: { [B]: C }): C
 		return object[property]
 	end
 end
 
--- String
+local snd = o.prop(2)
 
 o.cut = function(pattern: string)
 	return function(str: string): string
@@ -309,8 +355,6 @@ o.cut = function(pattern: string)
 		return `{pieces[1]}{pieces[#pieces]}`
 	end
 end
-
--- Logic
 
 function o.isNil<A>(a: A?): boolean
 	return a == nil
@@ -335,8 +379,6 @@ end
 function o.notOp(bool: boolean): boolean
 	return not bool
 end
-
--- Math
 
 o.add = function<A>(a: number)
 	return function(b: number): number
@@ -397,8 +439,6 @@ end
 function o.negate(num: number): number
 	return -num
 end
-
--- Relational
 
 o.eq = function<A>(a: A)
 	return function(b: A): boolean
